@@ -1,0 +1,51 @@
+{
+  "name": "@sculpt-ai/nutrition",
+  "version": "0.1.0",
+  "description": "Calorie and macro engine: maintenance, pace, floors and macros, the one calculator behind Sculpt AI's app, server and website",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sculpt-AI/nutrition.git"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.9"
+  },
+  "keywords": [
+    "sculpt",
+    "calories",
+    "tdee",
+    "bmr",
+    "macros",
+    "nutrition",
+    "mifflin-st-jeor",
+    "katch-mcardle"
+  ]
+}
