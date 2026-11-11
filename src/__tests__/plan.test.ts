@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGGRESSIVE_FAT_SHARE,
   calculate,
   calculateExpenditure,
   calorieFloorFor,
   computePlan,
   estimatedDailyAddBack,
+  FAT_MIN_G_PER_KG,
+  FAT_SHARE,
   kcalPerDayForWeeklyChange,
   LB_PER_KG,
+  proteinBasisKg,
 } from '../index';
 
 const rei = { age: 26, gender: 'male', weight: 103, height: 182.88, exerciseFrequency: 2, bodyFatPercentage: 32 };
@@ -96,5 +100,48 @@ describe('calculateExpenditure', () => {
     expect(r.eee).toBe(300);
     expect(r.neat).toBeCloseTo(80 * ((5000 * 0.414 * 180) / 100 / 1000) * 0.95, 6);
     expect(r.tdee).toBeCloseTo((r.bmr + r.neat + r.eee) * 1.1, 6);
+  });
+});
+
+describe('computePlan fat', () => {
+  const macroKcal = (p: { protein: number; carbs: number; fat: number }) => p.protein * 4 + p.carbs * 4 + p.fat * 9;
+
+  it('keeps fat at the per-kg minimum on a floored cut (Rei, 103 kg, Faster)', () => {
+    const plan = computePlan({ ...rei, weeklyChangeKg: -0.9979 });
+    expect(plan.calorieFloorApplied).toBe(true);
+    expect(plan.calories).toBe(1500);
+    expect(plan.fat).toBe(Math.round(FAT_MIN_G_PER_KG * proteinBasisKg(103, 182.88)));
+    expect(Math.abs(macroKcal(plan) - plan.calories)).toBeLessThan(12);
+  });
+
+  it('judges an aggressive cut by the deficit left after the floor', () => {
+    const floored = computePlan({ age: 35, gender: 'male', weight: 200, height: 198, exerciseFrequency: 1, bodyFatPercentage: 40, weeklyChangeKg: -1.996 });
+    expect(floored.calorieFloorApplied).toBe(true);
+    expect(floored.maintenanceCalories - floored.calories).toBeLessThan(1000);
+    expect(floored.fat).toBe(Math.round((floored.calories * FAT_SHARE) / 9));
+  });
+
+  it('uses the aggressive share when the real deficit is 1,000 kcal or more', () => {
+    const lean = { age: 30, gender: 'male', weight: 80, height: 180, exerciseFrequency: 6, bodyFatPercentage: 10 };
+    const hard = computePlan({ ...lean, weeklyChangeKg: -1.0 });
+    const moderate = computePlan({ ...lean, weeklyChangeKg: -0.85 });
+    expect(hard.maintenanceCalories - hard.calories).toBeGreaterThanOrEqual(1000);
+    expect(hard.fat).toBe(Math.round((hard.calories * AGGRESSIVE_FAT_SHARE) / 9));
+    expect(moderate.fat).toBe(Math.round((moderate.calories * FAT_SHARE) / 9));
+  });
+
+  it('never goes under the minimum, with or without eat-back, and macros still add up', () => {
+    for (const weeklyChangeKg of [-0.9979, -0.7938, -0.5669, 0, 0.25]) {
+      for (const dailyAddBackKcal of [null, 150]) {
+        const plan = computePlan({ ...rei, weeklyChangeKg, dailyAddBackKcal });
+        expect(plan.fat).toBeGreaterThanOrEqual(Math.floor(FAT_MIN_G_PER_KG * proteinBasisKg(103, 182.88)));
+        expect(Math.abs(macroKcal(plan) - plan.calories)).toBeLessThan(12);
+      }
+    }
+  });
+
+  it('does not change calories', () => {
+    const paces = [-0.5669, -0.7938, -0.9979].map(weeklyChangeKg => computePlan({ ...rei, weeklyChangeKg }).calories);
+    expect(paces).toEqual([1964, 1714, 1500]);
   });
 });

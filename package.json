@@ -1,6 +1,6 @@
 {
   "name": "@sculpt-ai/nutrition",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Calorie and macro engine: maintenance, pace, floors and macros, the one calculator behind Sculpt AI's app, server and website",
   "license": "MIT",
   "main": "./dist/index.js",

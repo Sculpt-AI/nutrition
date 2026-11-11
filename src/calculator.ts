@@ -24,6 +24,8 @@ export const CALCULATOR_MIN_KCAL = 1200;
 export const BODY_FAT_MIN = 3;
 export const BODY_FAT_MAX = 70;
 export const AGGRESSIVE_DEFICIT_KG_PER_WEEK = -0.907;
+export const FAT_SHARE = 0.25;
+export const AGGRESSIVE_FAT_SHARE = 0.2;
 
 export const ACTIVITY_MULTIPLIER_BY_DAYS: Record<ExerciseFrequency, number> = {
   '1': 1.2,
@@ -258,7 +260,7 @@ export function calculateMacros(input: {
     targetChange !== undefined
       ? targetChange <= AGGRESSIVE_DEFICIT_KG_PER_WEEK
       : goal === 'lose1000';
-  const fatShare = isAggressiveDeficit ? 0.2 : 0.25;
+  const fatShare = isAggressiveDeficit ? AGGRESSIVE_FAT_SHARE : FAT_SHARE;
 
   const proteinGrams = referenceWeightLbs * multiplier;
   const proteinCalories = proteinGrams * 4;

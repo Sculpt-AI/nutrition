@@ -1,6 +1,11 @@
 import {
+  AGGRESSIVE_DEFICIT_KG_PER_WEEK,
+  AGGRESSIVE_FAT_SHARE,
   calculate,
+  FAT_SHARE,
   kcalPerDayForWeeklyChange,
+  proteinBasisKg,
+  toCm,
   toKg,
   type ActivityLevel,
   type BmrEquation,
@@ -14,6 +19,11 @@ export const CALORIE_FLOOR_FEMALE = 1200;
 export const CALORIE_FLOOR_MALE = 1500;
 export const CALORIE_FLOOR_KCAL_PER_KG = 13;
 const PER_KG_FLOOR_MAX_KG = 300;
+export const FAT_MIN_G_PER_KG = 0.6;
+const AGGRESSIVE_DEFICIT_KCAL = -kcalPerDayForWeeklyChange(AGGRESSIVE_DEFICIT_KG_PER_WEEK);
+
+const fatShareForDeficit = (deficitKcal: number): number =>
+  deficitKcal >= AGGRESSIVE_DEFICIT_KCAL ? AGGRESSIVE_FAT_SHARE : FAT_SHARE;
 
 const STRENGTH_SESSION_MET = 4.5;
 const MAX_SESSION_MINUTES = 240;
@@ -162,7 +172,17 @@ export function computePlan(input: PlanInput): Plan {
   }
 
   const floor = clampCalorieFloor(adjusted.calories, gender, weightKg);
-  const macros = floor.clamped ? macrosAtFloor(adjusted, floor.calories) : adjusted;
+  const floored = floor.clamped ? macrosAtFloor(adjusted, floor.calories) : adjusted;
+  const requestedShare =
+    weeklyChangeKg <= AGGRESSIVE_DEFICIT_KG_PER_WEEK ? AGGRESSIVE_FAT_SHARE : FAT_SHARE;
+  const realShare = fatShareForDeficit(paced.results.tdee - Math.max(raw.calories, floor.floor));
+  const minFat = FAT_MIN_G_PER_KG * proteinBasisKg(weightKg, toCm(input.height, heightUnit));
+  const fat = Math.max(floored.fat * (realShare / requestedShare), minFat);
+  const macros = {
+    protein: floored.protein,
+    carbs: Math.max(0, (floor.calories - floored.protein * 4 - fat * 9) / 4),
+    fat,
+  };
 
   return {
     calories: Math.round(floor.calories),
