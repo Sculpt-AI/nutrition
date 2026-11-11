@@ -271,7 +271,7 @@ export function calculateMacros(input: {
     `Adjusted recommendation: ${multiplier.toFixed(2)}g per lb of body weight`,
     ...(bmi > PROTEIN_ADJUST_ABOVE_BMI
       ? [
-          `Note: BMI ${bmi.toFixed(1)} exceeds 30 — protein is based on an adjusted body weight ` +
+          `Note: BMI ${bmi.toFixed(1)} exceeds 30, so protein is based on an adjusted body weight ` +
             `of ${referenceWeightLbs.toFixed(0)} lbs (BMI 27.5 equivalent) instead of ${weightLbs.toFixed(0)} lbs to avoid over-prescription.`,
         ]
       : []),
@@ -286,7 +286,7 @@ export function calculateMacros(input: {
     '**Fat Calculation:**',
     `Fat allocation: ${(fatShare * 100).toFixed(0)}% of target calories (ACSM/IOC guideline: 20-35%)`,
     ...(isAggressiveDeficit
-      ? ['Using 20% (aggressive deficit — preserves more room for protein + carbs)']
+      ? ['Using 20% (aggressive deficit: preserves more room for protein + carbs)']
       : []),
     `Fat Calories = ${targetCalories.toFixed(2)} × ${fatShare} = ${fatCalories.toFixed(1)} calories`,
     `Fat = ${fatCalories.toFixed(1)} ÷ 9 cal/g = ${fatGrams.toFixed(1)}g`,
