@@ -43,4 +43,8 @@ npm test
 npm run build
 ```
 
+## Release
+
+Bump `version`, then `npm run release`. It tests, builds and publishes to public npm and to GitHub Packages: the app and backend resolve `@sculpt-ai/*` from GitHub Packages, the website and calculator site from npm. Then bump the dependency in all four.
+
 MIT
