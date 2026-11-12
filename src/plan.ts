@@ -2,7 +2,9 @@ import {
   AGGRESSIVE_DEFICIT_KG_PER_WEEK,
   AGGRESSIVE_FAT_SHARE,
   calculate,
+  calculateMacros,
   FAT_SHARE,
+  isUsableBodyFat,
   kcalPerDayForWeeklyChange,
   proteinBasisKg,
   toCm,
@@ -14,6 +16,7 @@ import {
   type HeightUnit,
   type WeightUnit,
 } from './calculator';
+import { mifflinBMR } from './expenditure';
 
 export const CALORIE_FLOOR_FEMALE = 1200;
 export const CALORIE_FLOOR_MALE = 1500;
@@ -98,6 +101,59 @@ export function estimatedDailyAddBack(args: {
   return Math.round((args.sessionsPerWeek * sessionActiveKcal(args.sessionMinutes, args.weightKg)) / 7);
 }
 
+export const BASELINE_PAL = 1.4;
+export const THERMIC_EFFECT_OF_FOOD = 0.1;
+export const DEFAULT_SESSION_MINUTES = 45;
+
+export function blendedBmr(input: {
+  age: number;
+  gender: Sex;
+  weightKg: number;
+  heightCm: number;
+  bodyFatPercentage?: number | null;
+}): { bmr: number; equation: BmrEquation } {
+  const mifflin = mifflinBMR(input.weightKg, input.heightCm, input.age, input.gender);
+  if (!isUsableBodyFat(input.bodyFatPercentage)) return { bmr: mifflin, equation: 'Mifflin-St Jeor' };
+  const katch = 370 + 21.6 * input.weightKg * (1 - (input.bodyFatPercentage as number) / 100);
+  return { bmr: (mifflin + katch) / 2, equation: 'Mifflin-St Jeor + Katch-McArdle' };
+}
+
+function estimatePaced(input: {
+  age: number;
+  gender: Sex;
+  weightKg: number;
+  heightCm: number;
+  bodyFatPercentage?: number | null;
+  sessionsPerWeek: number;
+  sessionMinutes?: number | null;
+  weeklyChangeKg: number;
+  exerciseType: ExerciseType;
+}) {
+  const { bmr, equation } = blendedBmr(input);
+  const sessionMinutes =
+    input.sessionMinutes != null && input.sessionMinutes > 0 ? input.sessionMinutes : DEFAULT_SESSION_MINUTES;
+  const training = estimatedDailyAddBack({
+    sessionsPerWeek: input.sessionsPerWeek,
+    sessionMinutes,
+    weightKg: input.weightKg,
+  });
+  const tdee = bmr * BASELINE_PAL + training * (1 + THERMIC_EFFECT_OF_FOOD);
+  const targetCalories = tdee + kcalPerDayForWeeklyChange(input.weeklyChangeKg);
+  const macros = calculateMacros({
+    targetCalories,
+    weightKg: input.weightKg,
+    heightCm: input.heightCm,
+    targetChange: input.weeklyChangeKg,
+    exerciseType: input.exerciseType,
+    activity: { exerciseFrequency: String(input.sessionsPerWeek) as ExerciseFrequency },
+  });
+  return {
+    results: { targetCalories, protein: macros.protein, carbs: macros.carbs, fat: macros.fat, tdee, bmr },
+    equation,
+    multiplier: Math.round((tdee / bmr) * 1000) / 1000,
+  };
+}
+
 export interface PlanInput {
   age: number;
   gender: string;
@@ -111,6 +167,7 @@ export interface PlanInput {
   exerciseType?: ExerciseType;
   weeklyChangeKg?: number;
   dailyAddBackKcal?: number | null;
+  sessionMinutes?: number | null;
 }
 
 export interface Plan {
@@ -155,7 +212,20 @@ export function computePlan(input: PlanInput): Plan {
     ? { activityLevel: input.activityLevel }
     : { exerciseFrequency: frequencyOf(input.exerciseFrequency) };
 
-  const paced = calculate({ ...base, ...activity });
+  const heightCmValue = toCm(input.height, heightUnit);
+  const paced = input.activityLevel
+    ? calculate({ ...base, ...activity })
+    : estimatePaced({
+        age: input.age,
+        gender,
+        weightKg,
+        heightCm: heightCmValue,
+        bodyFatPercentage: input.bodyFatPercentage,
+        sessionsPerWeek: Number(frequencyOf(input.exerciseFrequency)),
+        sessionMinutes: input.sessionMinutes,
+        weeklyChangeKg,
+        exerciseType: base.exerciseType,
+      });
   const raw: Macros = {
     calories: paced.results.targetCalories,
     protein: paced.results.protein,
@@ -166,7 +236,9 @@ export function computePlan(input: PlanInput): Plan {
   let adjusted = raw;
   let eatBack: Plan['eatBack'] = null;
   if (input.dailyAddBackKcal != null && Number.isFinite(input.dailyAddBackKcal)) {
-    const sedentary = calculate({ ...base, exerciseFrequency: '1' }).results.targetCalories;
+    const sedentary = input.activityLevel
+      ? calculate({ ...base, exerciseFrequency: '1' }).results.targetCalories
+      : paced.results.bmr * BASELINE_PAL + kcalPerDayForWeeklyChange(weeklyChangeKg);
     adjusted = eatBackBase(raw, sedentary, input.dailyAddBackKcal);
     eatBack = { dailyAddBackKcal: Math.round(input.dailyAddBackKcal), sedentaryCalories: Math.round(sedentary) };
   }
@@ -176,7 +248,7 @@ export function computePlan(input: PlanInput): Plan {
   const requestedShare =
     weeklyChangeKg <= AGGRESSIVE_DEFICIT_KG_PER_WEEK ? AGGRESSIVE_FAT_SHARE : FAT_SHARE;
   const realShare = fatShareForDeficit(paced.results.tdee - Math.max(raw.calories, floor.floor));
-  const minFat = FAT_MIN_G_PER_KG * proteinBasisKg(weightKg, toCm(input.height, heightUnit));
+  const minFat = FAT_MIN_G_PER_KG * proteinBasisKg(weightKg, heightCmValue);
   const fat = Math.max(floored.fat * (realShare / requestedShare), minFat);
   const macros = {
     protein: floored.protein,

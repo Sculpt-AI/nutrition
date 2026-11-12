@@ -4,12 +4,12 @@ The one calorie and macro engine behind Sculpt AI. The app (on the device), the 
 
 ## What it computes
 
-- **BMR:** Mifflin-St Jeor, or Katch-McArdle when a body-fat percentage (3-70%) is known.
-- **Maintenance (TDEE):** BMR × an activity multiplier, from training days a week (1.2, 1.375, 1.55, 1.55, 1.725, 1.8, 1.9) or an activity level (sedentary 1.2 … very active 1.9).
+- **BMR:** Mifflin-St Jeor; when a body-fat percentage (3-70%) is known, the average of Mifflin-St Jeor and Katch-McArdle (Mifflin keeps age and sex, Katch-McArdle body composition, and a rough body-fat estimate moves the result half as far).
+- **Maintenance (TDEE):** resting burn plus planned training. Resting burn is BMR × 1.4 (`BASELINE_PAL`: everyday life with no structured exercise, food digestion included; doubly-labelled-water studies put sedentary adults at about 1.4-1.65 × BMR). Training is the session burn above resting (4.5 MET strength, from training days × `sessionMinutes`, 45 when unknown) averaged over the week, plus 10% for digestion. An `activityLevel` input (the website tools) keeps the old multiplier table (sedentary 1.2 … very active 1.9).
 - **Pace:** 500 kcal a day per lb a week (`weeklyChangeKg × 2.20462 × 500`).
 - **Macros:** protein by g/lb for the training style and week (a BMI-27.5 weight above BMI 30), fat 25% of calories (20% when the deficit left after the floor is 1,000 kcal a day or more) and never under 0.6 g per kg of that protein weight, carbs the rest.
 - **Floor:** 1,500 kcal (1,200 for women), or 13 kcal per kg when that is higher. A target under it is raised to it: protein kept, fat scaled (still at least the fat minimum), carbs fill the rest.
-- **Add back what you burn:** the target less the average day's add-back, never under the once-a-week target.
+- **Add back what you burn:** the target less the average day's add-back, never under the no-training target (resting burn less the pace).
 - **Expenditure:** today's measured burn from steps, workouts and BMR.
 
 ## Use

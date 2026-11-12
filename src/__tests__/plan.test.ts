@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGGRESSIVE_FAT_SHARE,
+  BASELINE_PAL,
+  blendedBmr,
+  DEFAULT_SESSION_MINUTES,
+  THERMIC_EFFECT_OF_FOOD,
   calculate,
   calculateExpenditure,
   calorieFloorFor,
@@ -19,9 +23,9 @@ describe('computePlan', () => {
   it('keeps one maintenance for one body at every pace (Rei, Nov 10)', () => {
     const paces = [-0.5669, -0.7938, -0.9979].map(weeklyChangeKg => computePlan({ ...rei, weeklyChangeKg }));
     expect(new Set(paces.map(p => p.maintenanceCalories)).size).toBe(1);
-    expect(paces.map(p => p.calories)).toEqual([1964, 1714, 1500]);
-    expect(paces[2]!.calorieFloorApplied).toBe(true);
-    expect(paces[0]!.maintenanceCalories).toBe(2589);
+    expect(paces.map(p => p.calories)).toEqual([2216, 1966, 1741]);
+    expect(paces.some(p => p.calorieFloorApplied)).toBe(false);
+    expect(paces[0]!.maintenanceCalories).toBe(2841);
   });
 
   it('prices the same body the same in kg/cm and lbs/in', () => {
@@ -67,10 +71,10 @@ describe('computePlan', () => {
     expect(eatBack.calories).toBeGreaterThanOrEqual(eatBack.eatBack!.sedentaryCalories);
   });
 
-  it('accepts an activity level for the website tools', () => {
+  it('keeps the activity-level multiplier for the website tools', () => {
     const light = computePlan({ age: 30, gender: 'female', weight: 65, height: 168, activityLevel: 'light' });
-    const twoDays = computePlan({ age: 30, gender: 'female', weight: 65, height: 168, exerciseFrequency: 2 });
-    expect(light.maintenanceCalories).toBe(twoDays.maintenanceCalories);
+    expect(light.activityMultiplier).toBe(1.375);
+    expect(light.maintenanceCalories).toBe(Math.round(light.bmr * 1.375));
   });
 });
 
@@ -106,27 +110,27 @@ describe('calculateExpenditure', () => {
 describe('computePlan fat', () => {
   const macroKcal = (p: { protein: number; carbs: number; fat: number }) => p.protein * 4 + p.carbs * 4 + p.fat * 9;
 
-  it('keeps fat at the per-kg minimum on a floored cut (Rei, 103 kg, Faster)', () => {
-    const plan = computePlan({ ...rei, weeklyChangeKg: -0.9979 });
+  it('keeps fat at the per-kg minimum on a floored cut', () => {
+    const plan = computePlan({ age: 63, gender: 'female', weight: 68, height: 160, bodyFatPercentage: 38, exerciseFrequency: 2, sessionMinutes: 30, weeklyChangeKg: -0.635 });
     expect(plan.calorieFloorApplied).toBe(true);
-    expect(plan.calories).toBe(1500);
-    expect(plan.fat).toBe(Math.round(FAT_MIN_G_PER_KG * proteinBasisKg(103, 182.88)));
+    expect(plan.calories).toBe(1200);
+    expect(plan.fat).toBe(Math.round(FAT_MIN_G_PER_KG * proteinBasisKg(68, 160)));
     expect(Math.abs(macroKcal(plan) - plan.calories)).toBeLessThan(12);
   });
 
   it('judges an aggressive cut by the deficit left after the floor', () => {
-    const floored = computePlan({ age: 35, gender: 'male', weight: 200, height: 198, exerciseFrequency: 1, bodyFatPercentage: 40, weeklyChangeKg: -1.996 });
+    const floored = computePlan({ age: 40, gender: 'female', weight: 55, height: 160, exerciseFrequency: 1, sessionMinutes: 30, weeklyChangeKg: -1.0 });
     expect(floored.calorieFloorApplied).toBe(true);
     expect(floored.maintenanceCalories - floored.calories).toBeLessThan(1000);
     expect(floored.fat).toBe(Math.round((floored.calories * FAT_SHARE) / 9));
   });
 
-  it('uses the aggressive share when the real deficit is 1,000 kcal or more', () => {
+  it('drops a 1,000 kcal cut to the leaner share, held up by the per-kg minimum', () => {
     const lean = { age: 30, gender: 'male', weight: 80, height: 180, exerciseFrequency: 6, bodyFatPercentage: 10 };
     const hard = computePlan({ ...lean, weeklyChangeKg: -1.0 });
-    const moderate = computePlan({ ...lean, weeklyChangeKg: -0.85 });
+    const moderate = computePlan({ ...lean, weeklyChangeKg: -0.5 });
     expect(hard.maintenanceCalories - hard.calories).toBeGreaterThanOrEqual(1000);
-    expect(hard.fat).toBe(Math.round((hard.calories * AGGRESSIVE_FAT_SHARE) / 9));
+    expect(hard.fat).toBe(Math.max(Math.round((hard.calories * AGGRESSIVE_FAT_SHARE) / 9), Math.round(FAT_MIN_G_PER_KG * 80)));
     expect(moderate.fat).toBe(Math.round((moderate.calories * FAT_SHARE) / 9));
   });
 
@@ -140,8 +144,38 @@ describe('computePlan fat', () => {
     }
   });
 
-  it('does not change calories', () => {
-    const paces = [-0.5669, -0.7938, -0.9979].map(weeklyChangeKg => computePlan({ ...rei, weeklyChangeKg }).calories);
-    expect(paces).toEqual([1964, 1714, 1500]);
+});
+
+describe('computePlan maintenance', () => {
+  it('is resting burn (BMR x baseline) plus the planned training', () => {
+    const body = { age: 35, gender: 'male', weight: 80, height: 178, exerciseFrequency: 3, sessionMinutes: 60 };
+    const plan = computePlan(body);
+    const training = estimatedDailyAddBack({ sessionsPerWeek: 3, sessionMinutes: 60, weightKg: 80 });
+    expect(plan.equation).toBe('Mifflin-St Jeor');
+    const bmr = blendedBmr({ age: 35, gender: 'male', weightKg: 80, heightCm: 178 }).bmr;
+    expect(plan.maintenanceCalories).toBe(Math.round(bmr * BASELINE_PAL + training * (1 + THERMIC_EFFECT_OF_FOOD)));
+  });
+
+  it('counts training by weekly minutes, not by days', () => {
+    const body = { age: 35, gender: 'male', weight: 80, height: 178 };
+    const maintenance = [[6, 30], [2, 90], [3, 60]].map(([exerciseFrequency, sessionMinutes]) =>
+      computePlan({ ...body, exerciseFrequency, sessionMinutes }).maintenanceCalories
+    );
+    expect(new Set(maintenance).size).toBe(1);
+    expect(computePlan({ ...body, exerciseFrequency: 6, sessionMinutes: 60 }).maintenanceCalories).toBeGreaterThan(maintenance[0]!);
+  });
+
+  it('averages Mifflin and Katch-McArdle when body fat is known, so age still counts', () => {
+    const body = { gender: 'female', weight: 74, height: 160, bodyFatPercentage: 38, exerciseFrequency: 3, sessionMinutes: 30 };
+    const young = computePlan({ ...body, age: 25 });
+    const older = computePlan({ ...body, age: 61 });
+    expect(older.equation).toBe('Mifflin-St Jeor + Katch-McArdle');
+    expect(older.bmr).toBe(Math.round(blendedBmr({ ...body, gender: 'female', weightKg: 74, heightCm: 160, age: 61 }).bmr));
+    expect(older.maintenanceCalories).toBeLessThan(young.maintenanceCalories);
+  });
+
+  it('uses 45-minute sessions when the length is unknown', () => {
+    const body = { age: 26, gender: 'male', weight: 103, height: 182.88, exerciseFrequency: 2 };
+    expect(computePlan(body).maintenanceCalories).toBe(computePlan({ ...body, sessionMinutes: DEFAULT_SESSION_MINUTES }).maintenanceCalories);
   });
 });

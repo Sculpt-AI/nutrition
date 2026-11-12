@@ -13,7 +13,7 @@ export type Goal =
 export type ExerciseType = 'strength' | 'endurance' | 'hypertrophy';
 export type WeightUnit = 'lbs' | 'kg';
 export type HeightUnit = 'in' | 'cm';
-export type BmrEquation = 'Mifflin-St Jeor' | 'Katch-McArdle';
+export type BmrEquation = 'Mifflin-St Jeor' | 'Katch-McArdle' | 'Mifflin-St Jeor + Katch-McArdle';
 export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
 
 export const KG_PER_LB = 0.453592;
