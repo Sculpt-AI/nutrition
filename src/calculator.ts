@@ -153,6 +153,104 @@ export type Activity =
   | { exerciseFrequency: ExerciseFrequency }
   | { activityLevel: ActivityLevel };
 
+export const BASELINE_PAL = 1.4;
+export const THERMIC_EFFECT_OF_FOOD = 0.1;
+export const DEFAULT_SESSION_MINUTES = 45;
+const STRENGTH_SESSION_MET = 4.5;
+const MAX_SESSION_MINUTES = 240;
+
+export function sessionActiveKcal(minutes: number, weightKg: number): number {
+  const duration = Math.min(Math.max(minutes, 1 / 60), MAX_SESSION_MINUTES);
+  const gross = Math.round((duration * STRENGTH_SESSION_MET * 3.5 * weightKg) / 200);
+  const resting = (minutes * 3.5 * weightKg) / 200;
+  return Math.max(0, Math.round(gross - resting));
+}
+
+export function estimatedDailyAddBack(args: {
+  sessionsPerWeek: number;
+  sessionMinutes: number;
+  weightKg: number;
+}): number {
+  return Math.round((args.sessionsPerWeek * sessionActiveKcal(args.sessionMinutes, args.weightKg)) / 7);
+}
+
+function bmrFor(
+  weight: number,
+  height: number,
+  age: number,
+  gender: Gender,
+  weightUnit: WeightUnit,
+  heightUnit: HeightUnit,
+  bodyFatPercentage?: number | null
+): { bmr: number; steps: string[]; equation: BmrEquation } {
+  const mifflin = calculateBMR(weight, height, age, gender, weightUnit, heightUnit, null);
+  if (!isUsableBodyFat(bodyFatPercentage)) return mifflin;
+  const katch = calculateBMR(weight, height, age, gender, weightUnit, heightUnit, bodyFatPercentage);
+  const katchSteps = katch.steps.slice(katch.steps.indexOf('**Katch-McArdle Equation:**'));
+  const bmr = (mifflin.bmr + katch.bmr) / 2;
+  return {
+    bmr,
+    equation: 'Mifflin-St Jeor + Katch-McArdle',
+    steps: [
+      ...mifflin.steps,
+      '',
+      ...katchSteps,
+      '',
+      '**Average (Mifflin-St Jeor keeps age and sex, Katch-McArdle body composition):**',
+      `BMR = (${mifflin.bmr.toFixed(2)} + ${katch.bmr.toFixed(2)}) / 2 = ${bmr.toFixed(2)} calories/day`,
+    ],
+  };
+}
+
+export function blendedBmr(input: {
+  age: number;
+  gender: Gender;
+  weightKg: number;
+  heightCm: number;
+  bodyFatPercentage?: number | null;
+}): { bmr: number; steps: string[]; equation: BmrEquation } {
+  return bmrFor(input.weightKg, input.heightCm, input.age, input.gender, 'kg', 'cm', input.bodyFatPercentage);
+}
+
+export function calculateMaintenance(input: {
+  bmr: number;
+  sessionsPerWeek: number;
+  sessionMinutes?: number;
+  weightKg: number;
+}): { tdee: number; tef: number; eee: number; multiplier: number; steps: string[]; tefSteps: string[]; eeeSteps: string[] } {
+  const minutes = input.sessionMinutes != null && input.sessionMinutes > 0 ? input.sessionMinutes : DEFAULT_SESSION_MINUTES;
+  const perSession = sessionActiveKcal(minutes, input.weightKg);
+  const eee = estimatedDailyAddBack({ sessionsPerWeek: input.sessionsPerWeek, sessionMinutes: minutes, weightKg: input.weightKg });
+  const resting = input.bmr * BASELINE_PAL;
+  const training = eee * (1 + THERMIC_EFFECT_OF_FOOD);
+  const tdee = resting + training;
+  const tef = tdee * THERMIC_EFFECT_OF_FOOD;
+  return {
+    tdee,
+    tef,
+    eee,
+    multiplier: Math.round((tdee / input.bmr) * 1000) / 1000,
+    steps: [
+      '**Total Daily Energy Expenditure (TDEE):**',
+      `Resting burn = BMR × ${BASELINE_PAL} (everyday life without structured exercise, food digestion included)`,
+      `Resting burn = ${input.bmr.toFixed(2)} × ${BASELINE_PAL} = ${resting.toFixed(2)} calories/day`,
+      `Training = ${eee} calories/day (see training) + ${THERMIC_EFFECT_OF_FOOD * 100}% for digestion = ${training.toFixed(2)} calories/day`,
+      `TDEE = ${resting.toFixed(2)} + ${training.toFixed(2)} = ${tdee.toFixed(2)} calories/day`,
+    ],
+    tefSteps: [
+      '**Thermic Effect of Feeding (TEF):**',
+      'TEF is about 10% of TDEE (included in the resting burn and the training line)',
+      `TEF ≈ ${tdee.toFixed(2)} × ${THERMIC_EFFECT_OF_FOOD} = ${tef.toFixed(2)} calories/day`,
+    ],
+    eeeSteps: [
+      '**Training (exercise energy expenditure):**',
+      `${input.sessionsPerWeek} sessions a week × ${minutes} min, ${perSession} calories each above resting (${STRENGTH_SESSION_MET} MET strength training)`,
+      `Training = ${input.sessionsPerWeek} × ${perSession} / 7 = ${eee} calories/day`,
+    ],
+  };
+}
+
+
 export const activityMultiplier = (activity: Activity): number =>
   'activityLevel' in activity
     ? ACTIVITY_MULTIPLIER_BY_LEVEL[activity.activityLevel]
@@ -321,6 +419,7 @@ export interface CalculateRequest {
   weightUnit: WeightUnit;
   heightUnit: HeightUnit;
   bodyFatPercentage?: number | null;
+  sessionMinutes?: number;
 }
 
 export interface CalculateResult {
@@ -366,7 +465,8 @@ export function calculate(request: CalculateRequest): CalculateResult {
   const activity: Activity = request.activityLevel
     ? { activityLevel: request.activityLevel }
     : { exerciseFrequency: request.exerciseFrequency ?? '1' };
-  const bmrResult = calculateBMR(
+  const legacy = 'activityLevel' in activity;
+  const bmrResult = (legacy ? calculateBMR : bmrFor)(
     request.weight,
     request.height,
     request.age,
@@ -375,7 +475,14 @@ export function calculate(request: CalculateRequest): CalculateResult {
     request.heightUnit,
     request.bodyFatPercentage
   );
-  const tdeeResult = calculateTDEE(bmrResult.bmr, activity, bmrResult.equation);
+  const tdeeResult = legacy
+    ? { ...calculateTDEE(bmrResult.bmr, activity, bmrResult.equation), eee: 0, eeeSteps: [] as string[] }
+    : calculateMaintenance({
+        bmr: bmrResult.bmr,
+        sessionsPerWeek: Number(activity.exerciseFrequency),
+        sessionMinutes: request.sessionMinutes,
+        weightKg: toKg(request.weight, request.weightUnit),
+      });
   const target = calculateTargetCalories(tdeeResult.tdee, request.goal, request.targetChange);
   const macros = calculateMacros({
     targetCalories: target.targetCalories,
@@ -396,7 +503,7 @@ export function calculate(request: CalculateRequest): CalculateResult {
     results: {
       bmr: bmrResult.bmr,
       tef: tdeeResult.tef,
-      eee: 0,
+      eee: tdeeResult.eee,
       neat: 0,
       tdee: tdeeResult.tdee,
       targetCalories: target.targetCalories,
@@ -407,7 +514,7 @@ export function calculate(request: CalculateRequest): CalculateResult {
     steps: {
       bmrSteps: bmrResult.steps,
       tefSteps: tdeeResult.tefSteps,
-      eeeSteps: [],
+      eeeSteps: tdeeResult.eeeSteps,
       neatSteps: [],
       tdeeSteps: tdeeResult.steps,
       calorieAdjustmentSteps: target.steps,

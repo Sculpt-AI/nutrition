@@ -79,12 +79,29 @@ describe('computePlan', () => {
 });
 
 describe('calculate', () => {
-  it('matches the calculator service v2 response for a body-fat request', () => {
+  it('prices a body-fat request with resting burn plus training (Rei)', () => {
     const r = calculate({ age: 26, gender: 'male', weight: 103, height: 182.88, exerciseFrequency: '2', targetChange: -0.7938, exerciseType: 'hypertrophy', weightUnit: 'kg', heightUnit: 'cm', bodyFatPercentage: 32 });
-    expect(r.equation).toBe('Katch-McArdle');
-    expect(r.results.tdee).toBeCloseTo(2588.938, 2);
-    expect(r.results.targetCalories).toBeCloseTo(1713.938, 2);
+    expect(r.equation).toBe('Mifflin-St Jeor + Katch-McArdle');
+    expect(r.results.eee).toBe(81);
+    expect(r.results.tdee).toBeCloseTo(2840.705, 2);
+    expect(r.results.targetCalories).toBeCloseTo(1965.705, 2);
     expect(r.refusal).toBeNull();
+  });
+
+  it('agrees with computePlan, so the calculator pages and the app show one number', () => {
+    for (const [exerciseFrequency, sessionMinutes] of [['2', 45], ['5', 30], ['3', 90]] as const) {
+      const r = calculate({ age: 34, gender: 'female', weight: 72, height: 165, exerciseFrequency, sessionMinutes, targetChange: -0.45, exerciseType: 'hypertrophy', weightUnit: 'kg', heightUnit: 'cm' });
+      const plan = computePlan({ age: 34, gender: 'female', weight: 72, height: 165, exerciseFrequency: Number(exerciseFrequency), sessionMinutes, weeklyChangeKg: -0.45 });
+      expect(plan.maintenanceCalories).toBe(Math.round(r.results.tdee));
+      expect(plan.calories).toBe(Math.round(r.results.targetCalories));
+    }
+  });
+
+  it('keeps the old multiplier when only an activity level is given', () => {
+    const r = calculate({ age: 30, gender: 'female', weight: 65, height: 168, activityLevel: 'light', goal: 'maintain', exerciseType: 'hypertrophy', weightUnit: 'kg', heightUnit: 'cm' });
+    expect(r.equation).toBe('Mifflin-St Jeor');
+    expect(r.multiplier).toBe(1.375);
+    expect(r.results.eee).toBe(0);
   });
 
   it('flags what the service refuses', () => {
